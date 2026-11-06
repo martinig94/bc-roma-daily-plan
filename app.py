@@ -29,7 +29,16 @@ initials_by_surname = {player.surname: player.initials for player in roster}
 st.set_page_config(
     page_title="BC Roma daily plan", page_icon=":material/sports_basketball:"
 )
-st.title("BC Roma daily plan")
+LOGO = Path(__file__).parent / "assets" / "logo.svg"
+DESCRIPTION = (
+    "Upload the general plan, set practice time and individual meetings, and get "
+    "each player's daily schedule as xlsx and PNG images, ready to email."
+)
+
+_, logo_col, _ = st.columns([1, 2, 1])
+logo_col.image(LOGO, width="stretch", alt="BC Roma logo")
+st.title("BC Roma daily plan", text_alignment="center")
+st.caption(DESCRIPTION, text_alignment="center")
 
 with st.container(border=True):
     plan_file = st.file_uploader("General plan (csv or xlsx)", type=["csv", "xlsx"])
