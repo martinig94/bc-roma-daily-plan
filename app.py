@@ -110,21 +110,29 @@ if result:
         icon=":material/image:",
         width="stretch",
     )
-    for name, data in result["images"].items():
-        st.image(data, caption=name, alt=f"Schedule image {name}")
+    with st.container(border=True):
+        st.subheader("Send by email")
+        recipient = st.text_input(
+            "Recipient email", value=os.environ.get("MAIL_TO", ""), key="recipient"
+        )
+        send = st.button(
+            "Send images by email",
+            icon=":material/mail:",
+            disabled=not recipient.strip(),
+        )
+        if send:
+            try:
+                send_images(
+                    result["images"],
+                    recipient.strip(),
+                    f"BC Roma daily schedule {plan_date:%d/%m/%Y}",
+                    "Daily schedule images attached.",
+                )
+            except (MailConfigError, smtplib.SMTPException, OSError) as error:
+                st.error(str(error), title="Email not sent")
+            else:
+                st.success(f"Email sent to {recipient.strip()}")
 
-    with st.form("email"):
-        recipient = st.text_input("Send images to", value=os.environ.get("MAIL_TO", ""))
-        send = st.form_submit_button("Send by email", icon=":material/mail:")
-    if send:
-        try:
-            send_images(
-                result["images"],
-                recipient,
-                f"BC Roma daily schedule {plan_date:%d/%m/%Y}",
-                "Daily schedule images attached.",
-            )
-        except (MailConfigError, smtplib.SMTPException, OSError) as error:
-            st.error(str(error), title="Email not sent")
-        else:
-            st.success(f"Email sent to {recipient}")
+    with st.expander(f"Preview images ({len(result['images'])})"):
+        for name, data in result["images"].items():
+            st.image(data, caption=name, alt=f"Schedule image {name}")
