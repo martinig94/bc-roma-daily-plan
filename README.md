@@ -36,6 +36,17 @@ Fill these in `.env` (never commit it): `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS o
 default recipient. Gmail needs an app password. Then generate a plan in the app and
 use "Send by email". The email carries all the PNGs as attachments.
 
+## Deploy on Streamlit Community Cloud
+
+1. On share.streamlit.io choose "Create app", pick this repo, branch `main`, main file
+   `app.py`. In Advanced settings select Python 3.13.
+2. Paste the values from `.streamlit/secrets.toml.example` in Settings > Secrets.
+3. Under Sharing, restrict viewers to invited emails: the app has no login and can
+   send email through the SMTP account.
+
+Dependencies come from `requirements.txt`; regenerate it after changing them with
+`uv export --no-dev --no-hashes --no-emit-project -o requirements.txt`.
+
 ## Checks
 
 ```bash
