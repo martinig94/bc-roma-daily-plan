@@ -1,4 +1,4 @@
-"""Streamlit interface: CSV in, filled xlsx and section PNGs out."""
+"""Streamlit interface: general plan in, individual schedules xlsx and PNGs out."""
 
 import os
 import smtplib
@@ -12,15 +12,19 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from daily_plan.exports import save_outputs, zip_images
-from daily_plan.fill import Meeting, fill_template, read_csv
+from daily_plan.fill import Meeting, build_schedules, fill_template, read_plan
 from daily_plan.images import render_sections
 from daily_plan.mailer import MailConfigError, send_images
+from daily_plan.roster import load_roster
 
 load_dotenv()
 
-DEFAULT_TEMPLATE = Path(__file__).parent / "templates" / "daily_plan_template.xlsx"
+DEFAULT_TEMPLATE = Path(__file__).parent / "templates" / "template_daily_bc_roma.xlsx"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-DEFAULT_PRACTICE = time(18, 0)
+DEFAULT_PRACTICE = time(11, 45)
+
+roster = load_roster()
+initials_by_surname = {player.surname: player.initials for player in roster}
 
 st.set_page_config(
     page_title="BC Roma daily plan", page_icon=":material/sports_basketball:"
@@ -28,10 +32,11 @@ st.set_page_config(
 st.title("BC Roma daily plan")
 
 with st.container(border=True):
-    csv_file = st.file_uploader("CSV file", type="csv")
+    plan_file = st.file_uploader("General plan (csv or xlsx)", type=["csv", "xlsx"])
     template_file = st.file_uploader(
         "Template xlsx (optional, default template used if empty)", type="xlsx"
     )
+    plan_date = st.date_input("Date", value=date.today(), format="DD/MM/YYYY")
     practice_time = st.time_input("Practice time", value=DEFAULT_PRACTICE)
     st.caption("Individual meetings")
     meetings_table = st.data_editor(
@@ -39,32 +44,39 @@ with st.container(border=True):
             {"Who": pd.Series(dtype="str"), "Time": pd.Series(dtype="object")}
         ),
         num_rows="dynamic",
-        column_config={"Time": st.column_config.TimeColumn("Time", format="HH:mm")},
+        column_config={
+            "Who": st.column_config.SelectboxColumn(
+                "Who", options=list(initials_by_surname)
+            ),
+            "Time": st.column_config.TimeColumn("Time", format="HH:mm"),
+        },
         width="stretch",
         alt="Individual meetings: who and at what time",
     )
     zoom = st.slider("PNG zoom", 1.0, 3.0, 2.0, step=0.25)
     save_to_disk = st.checkbox("Save files automatically to the output folder", True)
-    generate = st.button("Generate", type="primary", disabled=csv_file is None)
+    generate = st.button("Generate", type="primary", disabled=plan_file is None)
 
-if generate and csv_file is not None:
+if generate and plan_file is not None:
     meetings = [
-        Meeting(str(row.Who), cast(time, row.Time))
+        Meeting(initials_by_surname[str(row.Who)], cast(time, row.Time))
         for row in meetings_table.dropna().itertuples()
-        if row.Who
     ]
     try:
+        schedules = build_schedules(
+            read_plan(plan_file, plan_file.name), roster, practice_time, meetings
+        )
         workbook = fill_template(
             BytesIO(template_file.getvalue()) if template_file else DEFAULT_TEMPLATE,
-            read_csv(csv_file),
-            practice_time,
-            meetings,
+            schedules,
+            roster,
+            plan_date,
         )
         images = render_sections(workbook, zoom)
     except ValueError as error:
-        st.error(str(error), title="Could not generate the plan")
+        st.error(str(error), title="Could not generate the schedules")
     else:
-        stem = f"daily_plan_{date.today():%Y-%m-%d}"
+        stem = f"daily_schedule_{plan_date:%Y-%m-%d}"
         st.session_state["result"] = {"stem": stem, "xlsx": workbook, "images": images}
         if save_to_disk:
             directory = Path(os.environ.get("OUTPUT_DIR", "output"))
@@ -91,7 +103,7 @@ if result:
         width="stretch",
     )
     for name, data in result["images"].items():
-        st.image(data, caption=name, alt=f"Section {name} of the daily plan")
+        st.image(data, caption=name, alt=f"Section {name} of the daily schedule")
 
     with st.form("email"):
         recipient = st.text_input("Send images to", value=os.environ.get("MAIL_TO", ""))
@@ -101,8 +113,8 @@ if result:
             send_images(
                 result["images"],
                 recipient,
-                f"BC Roma daily plan {date.today():%Y-%m-%d}",
-                "Daily plan images attached.",
+                f"BC Roma daily schedule {plan_date:%d/%m/%Y}",
+                "Daily schedule images attached.",
             )
         except (MailConfigError, smtplib.SMTPException, OSError) as error:
             st.error(str(error), title="Email not sent")
