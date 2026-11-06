@@ -25,7 +25,9 @@ uv run streamlit run app.py
   when the roster has more players than blocks.
 - "Practice time" overrides the time of TEAM PRACTICE. Each individual meeting adds a
   MEETING row to that player.
-- PNG sections: `full`, plus one per row of player blocks (`players_N`).
+- PNGs: `bc_roma_daily_<date>.png` for the whole team plus a zoom on each player
+  block named `<Surname>_<date>.png` (date as `YYYY-MM-DD`). Colors come from the
+  template's own palette.
 
 ## Checks
 

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from daily_plan.exports import save_outputs, zip_images
 from daily_plan.fill import Meeting, build_schedules, fill_template, read_plan
-from daily_plan.images import render_sections
+from daily_plan.images import TEAM_PREFIX, render_images
 from daily_plan.mailer import MailConfigError, send_images
 from daily_plan.roster import load_roster
 
@@ -72,11 +72,11 @@ if generate and plan_file is not None:
             roster,
             plan_date,
         )
-        images = render_sections(workbook, zoom)
+        images = render_images(workbook, plan_date, zoom)
     except ValueError as error:
         st.error(str(error), title="Could not generate the schedules")
     else:
-        stem = f"daily_schedule_{plan_date:%Y-%m-%d}"
+        stem = f"{TEAM_PREFIX}_{plan_date:%Y-%m-%d}"
         st.session_state["result"] = {"stem": stem, "xlsx": workbook, "images": images}
         if save_to_disk:
             directory = Path(os.environ.get("OUTPUT_DIR", "output"))
@@ -103,7 +103,7 @@ if result:
         width="stretch",
     )
     for name, data in result["images"].items():
-        st.image(data, caption=name, alt=f"Section {name} of the daily schedule")
+        st.image(data, caption=name, alt=f"Schedule image {name}")
 
     with st.form("email"):
         recipient = st.text_input("Send images to", value=os.environ.get("MAIL_TO", ""))

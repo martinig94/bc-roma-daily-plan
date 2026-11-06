@@ -1,70 +1,72 @@
-"""Render sections of the filled workbook as zoomed PNG images."""
+"""Render the team sheet and each player block of the workbook as PNG images."""
 
-from datetime import datetime, time
+import re
+from datetime import date, datetime, time
 from io import BytesIO
 from typing import cast
 
 from openpyxl import load_workbook
 from openpyxl.styles.colors import COLOR_INDEX, Color
-from openpyxl.utils import get_column_letter, range_boundaries
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from PIL import Image, ImageDraw, ImageFont
 
-HEADER_LABEL = "TIME"
+from daily_plan.fill import DATA_ROWS, HEADER_LABEL
+
+TEAM_PREFIX = "bc_roma_daily"
 BASE_FONT_SIZE = 14
 PX_PER_CHAR = 7
 PX_PER_POINT = 96 / 72
 DEFAULT_COL_WIDTH = 8.43
 DEFAULT_ROW_PX = 20
 WHITE = "#FFFFFF"
-DARK_LIMIT = 110
+BLACK = "#000000"
 BORDER_PX = {"thin": 1, "medium": 2, "thick": 3, "double": 3}
+NUMBER_PREFIX = re.compile(r"^#\d+\s*")
 
 Bounds = tuple[int, int, int, int]
 
 
-def list_sections(sheet: Worksheet) -> dict[str, str]:
-    """Split the sheet into one section per row of player blocks.
+def render_images(
+    workbook_bytes: bytes, plan_date: date, zoom: float = 1.0
+) -> dict[str, bytes]:
+    """Render the whole team sheet and a zoom on every player block.
 
     Args:
-        sheet: Filled worksheet.
-
-    Returns:
-        Mapping of section name to a range such as ``"A1:P13"``. ``full`` covers
-        the whole used range; ``players_N`` covers each row of player blocks.
-    """
-    last_col = get_column_letter(sheet.max_column)
-    starts = sorted(
-        {c.row for row in sheet.iter_rows() for c in row if c.value == HEADER_LABEL}
-    )
-    sections = {"full": sheet.dimensions}
-    for index, start in enumerate(starts):
-        end = starts[index + 1] - 1 if index + 1 < len(starts) else sheet.max_row
-        first = 1 if index == 0 else start
-        sections[f"players_{index + 1}"] = f"A{first}:{last_col}{end}"
-    return sections
-
-
-def render_sections(workbook_bytes: bytes, zoom: float = 1.0) -> dict[str, bytes]:
-    """Render every section of the active sheet to a PNG.
-
-    Args:
-        workbook_bytes: Bytes of the xlsx file.
+        workbook_bytes: Bytes of the filled xlsx file.
+        plan_date: Date used in the image names.
         zoom: Scale factor (1.0 is default size).
 
     Returns:
-        Mapping of section name to PNG bytes.
+        Mapping of image name (no extension) to PNG bytes: ``bc_roma_daily_<date>``
+        for the team and ``<Surname>_<date>`` for each player.
 
     Raises:
         ValueError: If zoom is not positive.
     """
     if zoom <= 0:
         raise ValueError("zoom must be positive")
-    sheet = cast(Worksheet, load_workbook(BytesIO(workbook_bytes)).active)
-    return {
-        name: _render_range(sheet, cell_range, zoom)
-        for name, cell_range in list_sections(sheet).items()
+    workbook = load_workbook(BytesIO(workbook_bytes))
+    sheet = cast(Worksheet, workbook.active)
+    palette = [str(color) for color in workbook._colors]  # type: ignore[attr-defined]
+    stamp = f"{plan_date:%Y-%m-%d}"
+
+    used = (1, 1, sheet.max_column, sheet.max_row)
+    images = {
+        f"{TEAM_PREFIX}_{stamp}": _render_range(
+            sheet, _trim_empty(sheet, used), zoom, palette
+        )
     }
+    for cell in (c for row in sheet.iter_rows() for c in row):
+        if cell.value != HEADER_LABEL:
+            continue
+        title = sheet.cell(cell.row, cell.column + 1).value
+        if not title:
+            continue
+        name = NUMBER_PREFIX.sub("", str(title)).title()
+        bounds = (cell.column, cell.row, cell.column + 1, cell.row + DATA_ROWS)
+        images[f"{name}_{stamp}"] = _render_range(sheet, bounds, zoom, palette)
+    return images
 
 
 def _trim_empty(sheet: Worksheet, bounds: Bounds) -> Bounds:
@@ -86,26 +88,17 @@ def _trim_empty(sheet: Worksheet, bounds: Bounds) -> Bounds:
     )
 
 
-def _color(color: Color | None) -> str | None:
-    """Resolve an rgb or indexed openpyxl color to ``#RRGGBB`` (None otherwise)."""
+def _color(color: Color | None, palette: list[str]) -> str | None:
+    """Resolve an rgb or indexed color (using the workbook palette) to ``#RRGGBB``."""
     if color is None:
         return None
     if color.type == "rgb" and isinstance(color.rgb, str):
         return f"#{color.rgb[-6:]}"
     if color.type == "indexed" and isinstance(color.indexed, int):
-        if color.indexed < len(COLOR_INDEX):
-            return f"#{COLOR_INDEX[color.indexed][-6:]}"
+        colors = palette or COLOR_INDEX
+        if color.indexed < len(colors):
+            return f"#{colors[color.indexed][-6:]}"
     return None
-
-
-def _contrast(background: str | None) -> str:
-    """Return white ink on dark backgrounds, black otherwise."""
-    if background is None:
-        return "black"
-    red, green, blue = (int(background[i : i + 2], 16) for i in (1, 3, 5))
-    return (
-        "white" if 0.299 * red + 0.587 * green + 0.114 * blue < DARK_LIMIT else "black"
-    )
 
 
 def _text(value: object) -> str:
@@ -115,9 +108,10 @@ def _text(value: object) -> str:
     return "" if value is None else str(value)
 
 
-def _render_range(sheet: Worksheet, cell_range: str, zoom: float) -> bytes:
-    """Draw one range as a PNG with fills, borders, merged and centered cells."""
-    bounds = _trim_empty(sheet, cast(Bounds, range_boundaries(cell_range)))
+def _render_range(
+    sheet: Worksheet, bounds: Bounds, zoom: float, palette: list[str]
+) -> bytes:
+    """Draw a cell range as PNG with fills, fonts, borders and merged cells."""
     min_col, min_row, max_col, max_row = bounds
     font = ImageFont.load_default(size=round(BASE_FONT_SIZE * zoom))
 
@@ -144,7 +138,6 @@ def _render_range(sheet: Worksheet, cell_range: str, zoom: float) -> bytes:
     image = Image.new("RGB", (xs[-1] + 1, ys[-1] + 1), WHITE)
     draw = ImageDraw.Draw(image)
     boxes = []
-    fill_colors: dict[int, str] = {}
     for row in range(min_row, max_row + 1):
         for col in range(min_col, max_col + 1):
             if (row, col) in covered:
@@ -157,23 +150,26 @@ def _render_range(sheet: Worksheet, cell_range: str, zoom: float) -> bytes:
                 ys[last_row - min_row + 1],
             )
             cell = sheet.cell(row, col)
-            fill = _color(cell.fill.fgColor) if cell.fill.fill_type == "solid" else None
-            if fill:
-                draw.rectangle(box, fill=fill)
-                fill_colors[id(cell)] = fill
-            boxes.append((cell, box))
+            fill = None
+            if cell.fill.fill_type == "solid":
+                fill = _color(cell.fill.fgColor, palette)
+                if fill:
+                    draw.rectangle(box, fill=fill)
+            boxes.append((cell, box, fill))
 
-    for cell, (left, top, right, bottom) in boxes:
+    for cell, (left, top, right, bottom), fill in boxes:
         text = _text(cell.value)
         if text:
             centered = cell.alignment.horizontal == "center"
             x = (left + right) / 2 if centered else left + 4 * zoom
             anchor = "mm" if centered else "lm"
-            position = (x, (top + bottom) / 2)
-            ink = _contrast(fill_colors.get(id(cell)))
-            draw.text(position, text, fill=ink, font=font, anchor=anchor)
+            ink = _color(cell.font.color, palette) or BLACK
+            if fill and ink.lower() == fill.lower():
+                ink = BLACK
+            y = (top + bottom) / 2
+            draw.text((x, y), text, fill=ink, font=font, anchor=anchor)
             if cell.font.b:
-                draw.text((x + 1, position[1]), text, ink, font, anchor)
+                draw.text((x + 1, y), text, ink, font, anchor)
         for side, line in (
             (cell.border.left, (left, top, left, bottom)),
             (cell.border.right, (right, top, right, bottom)),
@@ -182,7 +178,7 @@ def _render_range(sheet: Worksheet, cell_range: str, zoom: float) -> bytes:
         ):
             if side.style:
                 width = max(1, round(BORDER_PX.get(side.style, 1) * zoom))
-                draw.line(line, fill="black", width=width)
+                draw.line(line, fill=BLACK, width=width)
 
     buffer = BytesIO()
     image.save(buffer, format="PNG")

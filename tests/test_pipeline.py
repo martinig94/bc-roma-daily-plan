@@ -19,7 +19,7 @@ from daily_plan.fill import (
     fill_template,
     read_plan,
 )
-from daily_plan.images import render_sections
+from daily_plan.images import render_images
 from daily_plan.roster import load_roster
 
 PLAN = Path(__file__).parent / "data" / "611.xlsx"
@@ -81,17 +81,18 @@ def test_fill_template(plan, roster) -> None:  # type: ignore[no-untyped-def]
     assert "OLYNYK" in headers and "#9 FLOWERS" in headers
 
 
-def test_render_sections_zoom(plan, roster) -> None:  # type: ignore[no-untyped-def]
-    """Each section yields a PNG, zoom enlarges it, zip holds them all."""
-    filled = fill_template(
-        TEMPLATE, build_schedules(plan, roster), roster, date(2026, 11, 6)
+def test_render_images_names_and_zoom(plan, roster) -> None:  # type: ignore[no-untyped-def]
+    """One team image plus one zoom per player, named by player and date."""
+    day = date(2026, 11, 6)
+    filled = fill_template(TEMPLATE, build_schedules(plan, roster), roster, day)
+    small, large = render_images(filled, day, 1.0), render_images(filled, day, 2.0)
+    assert len(small) == len(roster) + 1
+    assert "bc_roma_daily_2026-11-06" in small
+    assert {"Mannion_2026-11-06", "Olynyk_2026-11-06", "Emejuru_2026-11-06"} <= set(
+        small
     )
-    small, large = render_sections(filled, 1.0), render_sections(filled, 2.0)
-    assert {"full", "players_1", "players_4"} <= set(small)
     assert all(data.startswith(PNG_MAGIC) for data in small.values())
-    assert (
-        Image.open(BytesIO(large["full"])).width
-        > Image.open(BytesIO(small["full"])).width
-    )
+    key = "Watson_2026-11-06"
+    assert Image.open(BytesIO(large[key])).width > Image.open(BytesIO(small[key])).width
     archive = zipfile.ZipFile(BytesIO(zip_images(small)))
     assert sorted(archive.namelist()) == sorted(f"{n}.png" for n in small)
