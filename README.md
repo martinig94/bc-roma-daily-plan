@@ -29,6 +29,13 @@ uv run streamlit run app.py
   block named `<Surname>_<date>.png` (date as `YYYY-MM-DD`). Colors come from the
   template's own palette.
 
+## Email setup
+
+Fill these in `.env` (never commit it): `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS or
+465 SSL), `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`, and optionally `MAIL_TO` as the
+default recipient. Gmail needs an app password. Then generate a plan in the app and
+use "Send by email". The email carries all the PNGs as attachments.
+
 ## Checks
 
 ```bash
