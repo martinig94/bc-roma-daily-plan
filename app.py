@@ -53,7 +53,6 @@ with st.container(border=True):
         width="stretch",
         alt="Individual meetings: who and at what time",
     )
-    zoom = st.slider("PNG zoom", 1.0, 3.0, 2.0, step=0.25)
     save_to_disk = st.checkbox("Save files automatically to the output folder", True)
     generate = st.button("Generate", type="primary", disabled=plan_file is None)
 
@@ -72,7 +71,7 @@ if generate and plan_file is not None:
             roster,
             plan_date,
         )
-        images = render_images(workbook, plan_date, zoom)
+        images = render_images(workbook, plan_date)
     except ValueError as error:
         st.error(str(error), title="Could not generate the schedules")
     else:

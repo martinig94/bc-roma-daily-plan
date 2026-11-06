@@ -9,12 +9,14 @@ from openpyxl import load_workbook
 from openpyxl.styles.colors import COLOR_INDEX, Color
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from daily_plan.fill import DATA_ROWS, HEADER_LABEL
 
 TEAM_PREFIX = "bc_roma_daily"
 BASE_FONT_SIZE = 14
+DEFAULT_ZOOM = 2.0
+MARGIN_PX = 12
 PX_PER_CHAR = 7
 PX_PER_POINT = 96 / 72
 DEFAULT_COL_WIDTH = 8.43
@@ -28,14 +30,14 @@ Bounds = tuple[int, int, int, int]
 
 
 def render_images(
-    workbook_bytes: bytes, plan_date: date, zoom: float = 1.0
+    workbook_bytes: bytes, plan_date: date, zoom: float = DEFAULT_ZOOM
 ) -> dict[str, bytes]:
     """Render the whole team sheet and a zoom on every player block.
 
     Args:
         workbook_bytes: Bytes of the filled xlsx file.
         plan_date: Date used in the image names.
-        zoom: Scale factor (1.0 is default size).
+        zoom: Scale factor applied to the rendered images.
 
     Returns:
         Mapping of image name (no extension) to PNG bytes: ``bc_roma_daily_<date>``
@@ -180,6 +182,7 @@ def _render_range(
                 width = max(1, round(BORDER_PX.get(side.style, 1) * zoom))
                 draw.line(line, fill=BLACK, width=width)
 
+    image = ImageOps.expand(image, border=round(MARGIN_PX * zoom), fill=WHITE)
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
