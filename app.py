@@ -5,7 +5,6 @@ import smtplib
 from datetime import date, time
 from io import BytesIO
 from pathlib import Path
-from typing import cast
 
 import pandas as pd
 import streamlit as st
@@ -22,6 +21,25 @@ load_dotenv()
 DEFAULT_TEMPLATE = Path(__file__).parent / "templates" / "template_daily_bc_roma.xlsx"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 DEFAULT_PRACTICE = time(11, 45)
+
+
+
+def as_time(value: object) -> time:
+    """Convert a time editor cell (``time`` or ``"HH:MM[:SS]"`` string) to ``time``.
+
+    Args:
+        value: Cell value returned by ``st.data_editor``.
+
+    Returns:
+        The value as a ``time`` object.
+
+    Raises:
+        ValueError: If the value is not a valid time string.
+    """
+    if isinstance(value, time):
+        return value
+    return time.fromisoformat(str(value))
+
 
 roster = load_roster()
 initials_by_surname = {player.surname: player.initials for player in roster}
@@ -67,7 +85,7 @@ with st.container(border=True):
 
 if generate and plan_file is not None:
     meetings = [
-        Meeting(initials_by_surname[str(row.Who)], cast(time, row.Time))
+        Meeting(initials_by_surname[str(row.Who)], as_time(row.Time))
         for row in meetings_table.dropna().itertuples()
     ]
     try:
