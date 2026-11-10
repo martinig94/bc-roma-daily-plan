@@ -20,11 +20,12 @@ uv run streamlit run app.py
   players (TEAM PRACTICE, TEAM LIFTING) applies to everyone.
 - `templates/roster.csv` maps initials to jersey number and surname, in block order.
   Edit it when the roster changes.
-- Each `TIME` header in the template starts a player block (5 rows). Colors per
-  activity are learned from the template's example rows. Extra blocks are cloned
-  when the roster has more players than blocks.
+- Each `TIME` header in the template starts a player block (5 rows by default).
+  Colors per activity are learned from the template's example rows. Extra blocks are
+  cloned when the roster has more players than blocks, and rows are inserted when a
+  player has more than 5 entries.
 - "Practice time" overrides the time of TEAM PRACTICE. Each individual meeting adds a
-  MEETING row to that player.
+  row to that player with its own label (default MEETING) and optional color.
 - PNGs: `bc_roma_daily_<date>.png` for the whole team plus a zoom on each player
   block named `<Surname>_<date>.png` (date as `YYYY-MM-DD`). Colors come from the
   template's own palette.

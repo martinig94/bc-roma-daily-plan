@@ -11,7 +11,14 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from daily_plan.exports import save_outputs, zip_images
-from daily_plan.fill import Meeting, build_schedules, fill_template, read_plan
+from daily_plan.fill import (
+    MEETING,
+    MEETING_COLORS,
+    Meeting,
+    build_schedules,
+    fill_template,
+    read_plan,
+)
 from daily_plan.images import TEAM_PREFIX, render_images
 from daily_plan.mailer import MailConfigError, send_images
 from daily_plan.roster import load_roster
@@ -21,7 +28,6 @@ load_dotenv()
 DEFAULT_TEMPLATE = Path(__file__).parent / "templates" / "template_daily_bc_roma.xlsx"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 DEFAULT_PRACTICE = time(11, 45)
-
 
 
 def as_time(value: object) -> time:
@@ -39,6 +45,26 @@ def as_time(value: object) -> time:
     if isinstance(value, time):
         return value
     return time.fromisoformat(str(value))
+
+
+def meetings_from_table(table: pd.DataFrame) -> list[Meeting]:
+    """Build meetings from the editor table, skipping rows without who or time.
+
+    Args:
+        table: Editor output with ``Who``, ``Time``, ``Label`` and ``Color`` columns.
+
+    Returns:
+        One meeting per complete row; empty labels fall back to ``MEETING``.
+    """
+    return [
+        Meeting(
+            initials_by_surname[str(row.Who)],
+            as_time(row.Time),
+            row.Label if isinstance(row.Label, str) else MEETING,
+            MEETING_COLORS.get(str(row.Color)),
+        )
+        for row in table.dropna(subset=["Who", "Time"]).itertuples()
+    ]
 
 
 roster = load_roster()
@@ -68,7 +94,12 @@ with st.container(border=True):
     st.caption("Individual meetings")
     meetings_table = st.data_editor(
         pd.DataFrame(
-            {"Who": pd.Series(dtype="str"), "Time": pd.Series(dtype="object")}
+            {
+                "Who": pd.Series(dtype="str"),
+                "Time": pd.Series(dtype="object"),
+                "Label": pd.Series(dtype="str"),
+                "Color": pd.Series(dtype="str"),
+            }
         ),
         num_rows="dynamic",
         column_config={
@@ -76,6 +107,12 @@ with st.container(border=True):
                 "Who", options=list(initials_by_surname)
             ),
             "Time": st.column_config.TimeColumn("Time", format="HH:mm"),
+            "Label": st.column_config.TextColumn(
+                "Label", help=f"Text in the schedule, {MEETING} if empty"
+            ),
+            "Color": st.column_config.SelectboxColumn(
+                "Color", options=list(MEETING_COLORS), help="Row color, optional"
+            ),
         },
         width="stretch",
         alt="Individual meetings: who and at what time",
@@ -84,10 +121,7 @@ with st.container(border=True):
     generate = st.button("Generate", type="primary", disabled=plan_file is None)
 
 if generate and plan_file is not None:
-    meetings = [
-        Meeting(initials_by_surname[str(row.Who)], as_time(row.Time))
-        for row in meetings_table.dropna().itertuples()
-    ]
+    meetings = meetings_from_table(meetings_table)
     try:
         schedules = build_schedules(
             read_plan(plan_file, plan_file.name), roster, practice_time, meetings

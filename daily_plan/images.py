@@ -66,7 +66,10 @@ def render_images(
         if not title:
             continue
         name = NUMBER_PREFIX.sub("", str(title)).title()
-        bounds = (cell.column, cell.row, cell.column + 1, cell.row + DATA_ROWS)
+        last_row = cell.row + DATA_ROWS
+        while sheet.cell(last_row + 1, cell.column).value is not None:
+            last_row += 1
+        bounds = (cell.column, cell.row, cell.column + 1, last_row)
         images[f"{name}_{stamp}"] = _render_range(sheet, bounds, zoom, palette)
     return images
 

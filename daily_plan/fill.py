@@ -18,8 +18,16 @@ from daily_plan.roster import Player
 HEADER_LABEL = "TIME"
 TEAM_PRACTICE = "TEAM PRACTICE"
 MEETING = "MEETING"
+MEETING_COLORS = {
+    "Yellow": "FFF2CC",
+    "Orange": "F8CBAD",
+    "Green": "C6E0B4",
+    "Blue": "BDD7EE",
+    "Pink": "F4B6C2",
+    "Purple": "D9C2E9",
+    "Grey": "D9D9D9",
+}
 DATA_ROWS = 5
-CLEAR_ROWS = 8
 TIME_FORMAT = "h\\.mm"
 TITLE_CELL = "A1"
 INITIALS_SPLIT = re.compile(r"[\s,-]+")
@@ -34,10 +42,12 @@ class Activity:
     Attributes:
         at: Start time.
         name: Activity name (e.g. ``"PHYSIO"``).
+        fill: Optional ``RRGGBB`` fill overriding the template color of ``name``.
     """
 
     at: time
     name: str
+    fill: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,10 +57,14 @@ class Meeting:
     Attributes:
         initials: Initials of the player met.
         at: Meeting start time.
+        label: Text shown in the schedule.
+        fill: Optional ``RRGGBB`` fill color of the meeting rows.
     """
 
     initials: str
     at: time
+    label: str = MEETING
+    fill: str | None = None
 
 
 def read_plan(source: str | Path | BinaryIO, filename: str) -> pd.DataFrame:
@@ -137,7 +151,8 @@ def build_schedules(
         raise ValueError(f"Unknown player initials: {', '.join(sorted(unknown))}")
 
     for meeting in meetings or []:
-        schedules[meeting.initials].append(Activity(meeting.at, MEETING))
+        label = meeting.label.strip().upper() or MEETING
+        schedules[meeting.initials].append(Activity(meeting.at, label, meeting.fill))
     return {
         initials: sorted(activities, key=lambda activity: activity.at)
         for initials, activities in schedules.items()
@@ -196,6 +211,41 @@ def _activity_styles(
     return styles
 
 
+def _insert_rows(sheet: Worksheet, before: int, count: int) -> None:
+    """Insert ``count`` rows before row ``before`` styled like the row above."""
+    heights = {
+        row: dimension.height
+        for row, dimension in sheet.row_dimensions.items()
+        if row >= before
+    }
+    sheet.insert_rows(before, count)
+    for row, height in sorted(heights.items(), reverse=True):
+        sheet.row_dimensions[row + count].height = height
+    for row in range(before, before + count):
+        sheet.row_dimensions[row].height = sheet.row_dimensions[before - 1].height
+        for column in range(1, sheet.max_column + 1):
+            sheet.cell(row, column)._style = copy(  # type: ignore[union-attr]
+                sheet.cell(before - 1, column)._style  # type: ignore[union-attr]
+            )
+
+
+def _grow_blocks(
+    sheet: Worksheet,
+    slots: list[tuple[int, int]],
+    roster: list[Player],
+    schedules: dict[str, list[Activity]],
+) -> None:
+    """Insert rows below the blocks of every row of players with long schedules."""
+    header_rows = sorted({row for row, _ in slots})
+    needed = [0] * len(header_rows)
+    for (row, _), player in zip(slots, roster, strict=False):
+        band = header_rows.index(row)
+        needed[band] = max(needed[band], len(schedules[player.initials]))
+    for row, size in reversed(list(zip(header_rows, needed, strict=True))):
+        if size > DATA_ROWS:
+            _insert_rows(sheet, row + DATA_ROWS + 1, size - DATA_ROWS)
+
+
 def fill_template(
     template: str | Path | BinaryIO,
     schedules: dict[str, list[Activity]],
@@ -206,7 +256,8 @@ def fill_template(
 
     Each ``TIME`` header cell starts a block: the cell to its right gets the player
     title and the rows below get time/activity pairs. Players are assigned to blocks
-    in roster order; extra rows of blocks are cloned when there are too few.
+    in roster order; extra rows of blocks are cloned when there are too few and rows
+    are inserted when a player has more than ``DATA_ROWS`` entries.
 
     Args:
         template: Template workbook path or binary file object.
@@ -218,7 +269,7 @@ def fill_template(
         Bytes of the filled xlsx file.
 
     Raises:
-        ValueError: If the template has no block or a player has too many entries.
+        ValueError: If the template has no block header.
     """
     workbook = load_workbook(template)
     sheet = cast(Worksheet, workbook.active)
@@ -229,6 +280,9 @@ def fill_template(
         _clone_last_group(sheet)
         slots = _find_slots(sheet)
 
+    _grow_blocks(sheet, slots, roster, schedules)
+    slots = _find_slots(sheet)
+
     sheet[TITLE_CELL] = f"DAILY SCHEDULE {plan_date:%d/%m/%Y}"
     styles = _activity_styles(sheet, slots)
     header_rows = sorted({row for row, _ in slots})
@@ -236,7 +290,7 @@ def fill_template(
         next_header = min(
             (r for r in header_rows if r > row), default=sheet.max_row + 1
         )
-        for target_row in range(row + 1, min(row + CLEAR_ROWS + 1, next_header)):
+        for target_row in range(row + 1, next_header):
             for target_column in (column, column + 1):
                 cell = sheet.cell(target_row, target_column)
                 cell.value = None
@@ -245,10 +299,6 @@ def fill_template(
 
     for (row, column), player in zip(slots, roster, strict=False):
         activities = schedules[player.initials]
-        if len(activities) > DATA_ROWS:
-            raise ValueError(
-                f"{player.surname} has {len(activities)} entries, max is {DATA_ROWS}"
-            )
         sheet.cell(row, column + 1).value = player.header
         for offset, activity in enumerate(activities, start=1):
             time_cell = sheet.cell(row + offset, column)
@@ -261,7 +311,12 @@ def fill_template(
                 styles.get(activity.name, DEFAULT_STYLE),
                 strict=True,
             ):
-                cell.fill, cell.font = copy(fill), copy(font)
+                cell.fill = (
+                    PatternFill("solid", fgColor=activity.fill)
+                    if activity.fill
+                    else copy(fill)
+                )
+                cell.font = copy(font)
 
     buffer = BytesIO()
     workbook.save(buffer)

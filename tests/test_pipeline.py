@@ -96,3 +96,29 @@ def test_render_images_names_and_zoom(plan, roster) -> None:  # type: ignore[no-
     assert Image.open(BytesIO(large[key])).width > Image.open(BytesIO(small[key])).width
     archive = zipfile.ZipFile(BytesIO(zip_images(small)))
     assert sorted(archive.namelist()) == sorted(f"{n}.png" for n in small)
+
+
+def test_meeting_label_and_color(plan, roster) -> None:  # type: ignore[no-untyped-def]
+    """A meeting keeps its label (upper-cased) and fill color."""
+    meeting = Meeting("NM", time(9, 0), "video review", "FFF2CC")
+    schedules = build_schedules(plan, roster, None, [meeting])
+    assert schedules["NM"][0] == Activity(time(9, 0), "VIDEO REVIEW", "FFF2CC")
+
+
+def test_many_entries_grow_blocks(plan, roster) -> None:  # type: ignore[no-untyped-def]
+    """Players with more than 5 entries push the following blocks down."""
+    day = date(2026, 11, 6)
+    meetings = [Meeting("PW", time(8, minute), "TALK", "BDD7EE") for minute in range(4)]
+    schedules = build_schedules(plan, roster, None, meetings)
+    assert len(schedules["PW"]) == 9
+    filled = fill_template(TEMPLATE, schedules, roster, day)
+    sheet = cast(Worksheet, load_workbook(BytesIO(filled)).active)
+    values = [c.value for row in sheet.iter_rows() for c in row if c.value]
+    assert values.count("TALK") == 4
+    assert "#3 WATSON" in values and "#13 ODZEBE" in values
+    assert sheet["L24"].fill.fgColor.rgb.endswith("BDD7EE")
+    images = render_images(filled, day, 1.0)
+    assert (
+        Image.open(BytesIO(images["Watson_2026-11-06"])).height
+        > Image.open(BytesIO(images["Mannion_2026-11-06"])).height
+    )
